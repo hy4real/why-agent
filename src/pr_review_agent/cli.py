@@ -217,6 +217,72 @@ def chat(ctx, owner: str, repo: str, number: int, style: str):
     console.print("[dim]退出交互模式[/dim]")
 
 
+@main.command("multi-review")
+@click.argument("owner")
+@click.argument("repo")
+@click.argument("number", type=int)
+@click.option("--deep-model", envvar="DEEP_MODEL", default="gpt-4o", help="精审模型")
+@click.option("--deep-base-url", envvar="DEEP_BASE_URL", default="https://api.openai.com/v1", help="精审 API base_url")
+@click.option("--deep-api-key", envvar="DEEP_API_KEY", help="精审 API key")
+@click.option("--threshold", default=6, type=int, help="复杂度升级阈值 (1-10)")
+@click.option("--style", type=click.Choice(list(STYLES.keys())), default=DEFAULT_STYLE, help="审查风格")
+@click.pass_context
+def multi_review(ctx, owner: str, repo: str, number: int,
+                 deep_model: str, deep_base_url: str, deep_api_key: str | None,
+                 threshold: int, style: str):
+    """多模型协作审查：DeepSeek 初筛 + 强模型精审。"""
+    token = ctx.obj["token"]
+    api_key = ctx.obj["api_key"]
+    if not token:
+        console.print("[red]错误: 需要 GITHUB_TOKEN 环境变量[/red]")
+        sys.exit(1)
+    if not api_key:
+        console.print("[red]错误: 需要 OPENAI_API_KEY 环境变量（初筛模型）[/red]")
+        sys.exit(1)
+    if not deep_api_key:
+        console.print("[red]错误: 需要 DEEP_API_KEY 环境变量（精审模型）[/red]")
+        sys.exit(1)
+
+    import logging
+    logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s: %(message)s")
+
+    from .multi_model import MultiModelConfig, run_multi_model_review
+
+    config = MultiModelConfig(
+        screening_model=ctx.obj["model"],
+        screening_base_url=ctx.obj["base_url"],
+        screening_api_key=api_key,
+        deep_model=deep_model,
+        deep_base_url=deep_base_url,
+        deep_api_key=deep_api_key,
+        escalation_threshold=threshold,
+    )
+
+    console.print(f"\n[bold]多模型协作审查 {owner}/{repo}#{number}[/bold]")
+    console.print(f"  初筛模型: [cyan]{config.screening_model}[/cyan]")
+    console.print(f"  精审模型: [cyan]{config.deep_model}[/cyan]")
+    console.print(f"  升级阈值: [cyan]{threshold}[/cyan]\n")
+
+    with console.status("[bold green]Agent 运行中..."):
+        result = run_multi_model_review(owner, repo, number, config, token, style)
+
+    # 显示初筛结果
+    console.print("\n" + "─" * 60)
+    console.print("[bold yellow]阶段一：初筛结果[/bold yellow]")
+    console.print(f"  复杂度评分: [cyan]{result['complexity']}/10[/cyan]")
+    console.print(f"  是否升级: [{'green' if result['escalated'] else 'dim'}]{result['escalated']}[/]")
+    console.print(Markdown(result["screening"]))
+
+    # 显示精审结果（如果有）
+    if result["deep_review"]:
+        console.print("\n" + "─" * 60)
+        console.print(f"[bold green]阶段二：{config.deep_model} 精审结果[/bold green]")
+        console.print(Markdown(result["deep_review"]))
+
+    console.print("=" * 60)
+    console.print("[dim]dry_run 模式，未发布评论。[/dim]")
+
+
 @main.command()
 @click.option("--port", default=8080, help="监听端口")
 @click.option("--host", default="0.0.0.0", help="监听地址")
