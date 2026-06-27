@@ -51,6 +51,7 @@
 - **权限控制** — dry_run 模式不发评论，live 模式需确认
 - **Webhook 服务** — 监听 GitHub PR 事件，自动触发审查
 - **自定义 LLM** — 支持 DeepSeek、智谱等 OpenAI 兼容接口
+- **多模型协作** — DeepSeek 初筛 + GPT-4o 精审，便宜模型决定要不要请贵模型出手
 
 ## 使用
 
@@ -92,6 +93,12 @@ pr-review serve --port 8080 --style lenient
 
 # 带签名验证的 webhook
 pr-review serve --port 8080 --webhook-secret your-secret
+
+# 多模型协作审查（DeepSeek 初筛 + GPT-4o 精审）
+DEEP_API_KEY=sk-xxx pr-review multi-review fastapi fastapi 12345
+
+# 自定义精审模型和升级阈值
+DEEP_API_KEY=sk-xxx pr-review multi-review fastapi fastapi 12345 --deep-model gpt-4o --threshold 8
 ```
 
 ### Webhook 配置
@@ -117,5 +124,6 @@ pr-review serve --port 8080 --webhook-secret your-secret
 | 审查风格 | prompt 模板系统 | 直接替换 system prompt 字符串 |
 | 测试覆盖检查 | 需要条件边 + 分支节点 | 一句 prompt + get_file_content 工具 |
 | 部署 | FastAPI + 序列化 graph | 标准库 http.server，零依赖 |
+| 多模型协作 | 需要自定义 node + 条件边 | 两阶段 pipeline，模型自判断升级 |
 
 框架帮你做的 80% 是胶水工作。理解原理后，胶水自己写并不难，而且更灵活。
