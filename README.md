@@ -7,25 +7,26 @@
 ## 架构
 
 ```
-┌─────────────────────────────────────────────┐
-│                   CLI (click)               │
-│  list / review / chat / history             │
-└──────────────┬──────────────────────────────┘
-               │
-┌──────────────▼──────────────────────────────┐
-│              Agent (harness.py)             │
-│  while loop: 消息 → 工具调用 → 追加 → 重复   │
-└──┬───────────┬──────────────┬───────────────┘
+┌─────────────────────────────────────────────────┐
+│              CLI (click)  /  Webhook Server      │
+│  list / review / chat / history  /  serve        │
+└──────────────────┬──────────────────────────────┘
+                   │
+┌──────────────────▼──────────────────────────────┐
+│              Agent (harness.py)                  │
+│  while loop: 消息 → 工具调用 → 追加 → 重复        │
+└──┬───────────┬──────────────┬───────────────────┘
    │           │              │
 ┌──▼──┐  ┌────▼────┐  ┌──────▼──────┐
 │tools│  │context  │  │permissions  │
 │注册表│  │diff压缩 │  │dry_run/live │
 └──┬──┘  └─────────┘  └─────────────┘
    │
-┌──▼──────────┐  ┌──────────┐  ┌──────────┐
-│GitHub API   │  │StateStore│  │OpenAI API│
-│PR/diff/评论  │  │审查历史   │  │LLM 调用  │
-└─────────────┘  └──────────┘  └──────────┘
+┌──▼──────────┐  ┌──────────┐  ┌──────────┐  ┌──────────┐
+│GitHub API   │  │StateStore│  │OpenAI API│  │  styles  │
+│PR/diff/评论  │  │审查历史   │  │LLM 调用  │  │风格切换   │
+│文件内容读取   │  └──────────┘  └──────────┘  └──────────┘
+└─────────────┘
 ```
 
 ## 核心设计
@@ -38,6 +39,18 @@
 | context.py | s08 上下文压缩 | 大 diff 智能裁剪，按文件优先级排序 |
 | state.py | s10 持久化 | JSON 文件记住审过的 PR |
 | pr_tools.py | s06 工具组合 | 业务层工具定义，注册到 registry |
+| styles.py | — | 审查风格切换 (strict / lenient / security-only) |
+| server.py | — | Webhook HTTP 服务，标准库实现 |
+
+## 功能
+
+- **真实 GitHub API** — 列 PR、获取 diff、发表 review、行内评论
+- **审查风格切换** — strict（严格）、lenient（务实）、security-only（安全专项）
+- **测试覆盖检查** — 自动读取测试文件，判断"改了代码但没改测试"
+- **上下文压缩** — 大 PR 按文件优先级裁剪，标注行号
+- **权限控制** — dry_run 模式不发评论，live 模式需确认
+- **Webhook 服务** — 监听 GitHub PR 事件，自动触发审查
+- **自定义 LLM** — 支持 DeepSeek、智谱等 OpenAI 兼容接口
 
 ## 使用
 
@@ -56,6 +69,12 @@ pr-review list fastapi fastapi --limit 5
 # 审查指定 PR (dry_run 模式，不发评论)
 pr-review review fastapi fastapi 12345
 
+# 用 strict 风格审查
+pr-review review fastapi fastapi 12345 --style strict
+
+# 只检查安全问题
+pr-review review fastapi fastapi 12345 --style security-only
+
 # 交互式审查，可以追问细节
 pr-review chat fastapi fastapi 12345
 
@@ -67,7 +86,24 @@ pr-review --base-url https://api.deepseek.com/v1 --api-key sk-xxx --model deepse
 
 # 查看审查历史
 pr-review history
+
+# 启动 webhook 服务（监听 GitHub PR 事件自动审查）
+pr-review serve --port 8080 --style lenient
+
+# 带签名验证的 webhook
+pr-review serve --port 8080 --webhook-secret your-secret
 ```
+
+### Webhook 配置
+
+在 GitHub 仓库 → Settings → Webhooks 中：
+
+| 配置项 | 值 |
+|--------|-----|
+| Payload URL | `http://your-server:8080/webhook` |
+| Content type | `application/json` |
+| Events | `Pull requests` |
+| Secret | 与 `--webhook-secret` 一致 |
 
 ## 为什么不用框架
 
@@ -78,6 +114,8 @@ pr-review history
 | 权限控制 | 需自己接 | PermissionGuard，dry_run/live 双模式 |
 | 上下文压缩 | 需自己接 | context.py，按优先级裁剪大 diff |
 | 状态持久化 | Checkpoint + 数据库 | JSON 文件，够用就行 |
-| 可观测性 | LangSmith | 无（生产可加 logging） |
+| 审查风格 | prompt 模板系统 | 直接替换 system prompt 字符串 |
+| 测试覆盖检查 | 需要条件边 + 分支节点 | 一句 prompt + get_file_content 工具 |
+| 部署 | FastAPI + 序列化 graph | 标准库 http.server，零依赖 |
 
 框架帮你做的 80% 是胶水工作。理解原理后，胶水自己写并不难，而且更灵活。
