@@ -127,3 +127,5 @@ DEEP_API_KEY=sk-xxx pr-review multi-review fastapi fastapi 12345 --deep-model gp
 | 多模型协作 | 需要自定义 node + 条件边 | 两阶段 pipeline，模型自判断升级 |
 
 框架帮你做的 80% 是胶水工作。理解原理后，胶水自己写并不难，而且更灵活。
+
+<!-- webhook test @ 2026-07-02T03:43:01Z -->
